@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 function fancy_message() {
     # $1 = type , $2 = message
     # Message types
