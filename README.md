@@ -1,3 +1,7 @@
+# Important
+Pacstall has moved to a new location at https://github.com/pacstall/pacstall. Issues and PR's should be done there.
+
+
 <p align="center">
 <a href="https://choosealicense.com/licenses/gpl-3.0/"><img src="https://img.shields.io/badge/license-GPL-blue.svg?style=flat-square&logo"></a>
 <a href="https://github.com/Henryws/pacstall/releases/latest"><img src="https://img.shields.io/github/v/release/Henryws/pacstall?color=red&style=flat-square"></a>
