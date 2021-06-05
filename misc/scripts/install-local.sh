@@ -69,20 +69,19 @@ if ask "Do you want to edit the pacscript" N; then
     elif [[ -n $VISUAL ]]; then
         $VISUAL "$PACKAGE".pacscript
     else
-        nano "$PACKAGE".pacscript
+        sensible-editor "$PACKAGE".pacscript
     fi
 fi
 fancy_message info "Sourcing pacscript"
 DIR=$(pwd)
-source "$PACKAGE".pacscript
+source "$PACKAGE".pacscript >/dev/null
 if [[ $? -eq 1 ]]; then
     fancy_message error "Couldn't parse pacscript"
     exit 12
 fi
 
-type pkgver >/dev/null 2>&1
-if [[ $? -eq 0 ]] ; then
-  pkgver
+if type pkgver >/dev/null 2>&1; then
+    version=$(pkgver) >/dev/null
 fi
 
 fancy_message info "Running checks"
@@ -102,21 +101,21 @@ if [[ -n "$build_depends" ]]; then
     fi
 
 if [[ -n "$pacdeps" ]]; then
+    declare -a pacdepslist
     for i in "${pacdeps[@]}"
     do
         fancy_message info "Installing $i"
         sudo pacstall -P -I "$i"
+        pacdepslist+=($i)
     done
 fi
 
-echo -n "$depends" > /dev/null 2>&1
-if [[ $? -eq 0 ]] ; then
+if echo -n "$depends" > /dev/null 2>&1; then
     if [[ -n "$breaks" ]]; then
-    dpkg-query -l "$breaks" >/dev/null 2>&1
-    if [[ $? -eq 0 ]] ; then
-      fancy_message error "${RED}$name${NC} breaks $breaks, which is currently installed by apt"
-      exit 1
-    fi
+        if dpkg-query -l "$breaks" >/dev/null 2>&1; then
+            fancy_message error "${RED}$name${NC} breaks $breaks, which is currently installed by apt"
+            exit 1
+        fi
     fi
     if [[ -n "$breaks" ]] ; then
         if [[ $(pacstall -L) == *$breaks* ]] ; then
@@ -143,8 +142,7 @@ if [[ -n "$ppa" ]]; then
 fi
 
 if [[ $NOBUILDDEP -eq 0 ]] ; then
-    sudo apt-get install -y -qq -o=Dpkg::Use-Pty=0 $build_depends
-    if [[ $? -ne 0 ]] ; then
+    if ! sudo apt-get install -y -qq -o=Dpkg::Use-Pty=0 $build_depends; then
         fancy_message error "Failed to install build dependencies"
         exit 8
     fi
@@ -174,17 +172,18 @@ cd /tmp/pacstall
 # Detects if url ends in .git (in that case git clone it), or ends in .zip, or just assume that the url can be uncompressed with tar. Then cd into them
 if [[ $url = *.git ]] ; then
   git clone --quiet --depth=1 --jobs=10 "$url"
-  cd $(/bin/ls -d */|head -n 1)
+  cd $(/bin/ls -d -- */|head -n 1)
+  git fsck --full
 else
   wget -q --show-progress --progress=bar:force "$url" 2>&1
   if [[ $url = *.zip ]] ; then
     hashcheck "${url##*/}"
     unzip -q "${url##*/}" 1>&1
-    cd $(/bin/ls -d */|head -n 1)
+    cd $(/bin/ls -d -- */|head -n 1)
   else
     hashcheck "${url##*/}"
     tar -xf "${url##*/}" 1>&1
-    cd $(/bin/ls -d */|head -n 1)
+    cd $(/bin/ls -d -- */|head -n 1)
   fi
 fi
 
@@ -199,11 +198,9 @@ fi
 
 prepare
 # Check if build function exists
-type -t build >/dev/null 2>&1
-if [[ $? -eq 0 ]] ; then
+if type -t build >/dev/null 2>&1; then
   build
-fi
-if [[ $? -eq 1 ]] ; then
+else
   fancy_message error "Something didn't compile right"
   exit 5
 fi
@@ -224,12 +221,20 @@ if [[ $removescript == "yes" ]] ; then
    echo "removescript=\"yes"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
 fi
 echo "maintainer=\"$maintainer"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
-echo "dependencies=\"$depends"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
+if [[ -n $depends ]]; then
+    echo "dependencies=\"$depends"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
+fi
+if [[ -n $build_depends ]]; then
+    echo "build_dependencies=\"$build_depends"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
+fi
+if [[ -n $pacdepslist ]]; then
+    echo "pacdeps=\"${pacdepslist[*]}"\" | sudo tee -a /var/log/pacstall_installed/"$PACKAGE" >/dev/null
+fi
 
 # If optdepends exists do this
 if [[ -n $optdepends ]] ; then
     sudo rm -f /tmp/pacstall-optdepends
-    fancy_message info "Package has some optional dependencies that can enhance it's functionalities"
+    fancy_message info "Package has some optional dependencies that can enhance its functionalities"
     echo "Optional dependencies:"
     printf '    %s\n' "${optdepends[@]}"
     if ask "Do you want to install them" Y; then
@@ -242,6 +247,9 @@ fi
 fancy_message info "Symlinking files"
 cd /usr/src/pacstall/ || sudo mkdir -p /usr/src/pacstall && cd /usr/src/pacstall
 # By default (I think), stow symlinks to the directory behind it (..), but we want to symlink to /, or in other words, symlink files from pkg/usr to /usr
+if ! command -v stow >/dev/null; then
+    sudo apt-get install stow -y
+fi
 sudo stow --target="/" "$PACKAGE"
 # stow will fail to symlink packages if files already exist on the system; this is just an error
 if [[ $? -eq 1 ]]; then
@@ -256,4 +264,4 @@ fi
 fancy_message info "Storing pacscript"
 sudo mkdir -p /var/cache/pacstall/$PACKAGE/$version
 cd $DIR
-sudo \cp -r "$PACKAGE".pacscript /var/cache/pacstall/$PACKAGE/$version
+sudo cp -r "$PACKAGE".pacscript /var/cache/pacstall/$PACKAGE/$version
